@@ -1,0 +1,11 @@
+# ТОКЕНЫ ТЕЛЕГРАМ И ОПЛАТЫ
+BOT_TOKEN = "ВАШ_ТОКЕН_ИЗ_BOTFATHER"
+YOOMONEY_WALLET = "ВАШ_НОМЕР_КОШЕЛЬКА_ЮМАНИ"
+YOOMONEY_TOKEN = "ВАШ_ТОКЕН_ЮМАНИ"
+
+# НАСТРОЙКИ X-UI ПАНЕЛИ
+XUI_URL = "https://ВАШ_IP:ПОРТ/ПУТЬ_ПАНЕЛИ"
+XUI_USERNAME = "admin"
+XUI_PASSWORD = "password"
+INBOUND_ID = 1  # ID вашего входящего подключения (обычно 1 или 4)
+

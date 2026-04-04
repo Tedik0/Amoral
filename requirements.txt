@@ -1,0 +1,4 @@
+aiogram==3.13.1
+yoomoney==0.1.2
+requests==2.32.4
+urllib3==2.2.3
