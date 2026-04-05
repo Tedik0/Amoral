@@ -127,7 +127,7 @@ class XUIClient:
                     "sni": sni,
                     "sid": sid,
                     "fp": settings.get("fingerprint", "chrome"),
-                    "flow": "xtls-rprx-vision"
+                    "flow": ""
                 })
 
             # Склеиваем всё в одну строку
