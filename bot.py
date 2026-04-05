@@ -8,22 +8,28 @@ from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from config import ADMIN_ID
 from config import (
     BOT_TOKEN, YOOMONEY_WALLET, YOOMONEY_TOKEN,
     XUI_URL, XUI_USERNAME, XUI_PASSWORD, INBOUND_ID
 )
 # Добавь новые функции в импорт
-from keyboards.inline import tariffs_kb, check_payment_kb, main_menu_inline, back_to_menu_kb
+from keyboards.inline import tariffs_kb, check_payment_kb, main_menu_inline, back_to_menu_kb, profile_kb
+from keyboards.admin_inline import admin_main_kb
 from services.yoomoney import create_payment_link, check_payment
 from services.xui_client import XUIClient
 
+from database.db import get_admin_stats
 from database.db import init_db, add_user, add_subscription
+from database.db import get_user_subscription, has_used_trial, get_full_subscription
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 xui = XUIClient(XUI_URL, XUI_USERNAME, XUI_PASSWORD)
 
+# --- ТВОИ ТАРИФЫ (Примерно 28-я строка) ---
 TARIFFS = {
+    "trial": {"price": 0, "days": 7, "name": "Пробный период"}, # Вставляй СЮДА
     "1": {"price": 50, "days": 30, "name": "1 месяц"},
     "3": {"price": 100, "days": 90, "name": "3 месяца"},
     "12": {"price": 500, "days": 365, "name": "1 год"}
@@ -45,9 +51,47 @@ async def start(event):
         await event.message.edit_text(text, reply_markup=main_menu_inline())
 
 
+# Обнови обработку вызова тарифов
 @dp.callback_query(F.data == "menu_tariffs")
 async def show_tariffs(callback: CallbackQuery):
-    await callback.message.edit_text("🚀 <b>Выберите подходящий тариф:</b>", reply_markup=tariffs_kb())
+    trial_used = has_used_trial(callback.from_user.id)
+    # Показываем кнопку триала, если пользователь еще не пользовался им
+    await callback.message.edit_text(
+        "🚀 <b>Выберите подходящий тариф:</b>",
+        reply_markup=tariffs_kb(show_trial=not trial_used)
+    )
+
+
+# Добавь новый тариф в словарь TARIFFS (в начале bot.py)
+# TARIFFS = { "trial": {"price": 0, "days": 7, "name": "Пробный период"}, ... }
+
+@dp.callback_query(F.data == "buy_trial")
+async def activate_trial(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    if has_used_trial(tg_id):
+        await callback.answer("❌ Вы уже использовали пробный период", show_alert=True)
+        return
+
+    await callback.message.edit_text("⏳ Активирую ваш пробный период...")
+
+    user_name = callback.from_user.username or "no_name"
+    user_email = f"trial_{tg_id}"
+    user_uuid = str(uuid.uuid4())
+
+    if xui.add_client(INBOUND_ID, user_uuid, user_email, days=7):
+        vpn_link = xui.get_link(INBOUND_ID, user_uuid, f"Trial_{user_name}")
+        add_user(tg_id, user_name)
+        add_subscription(tg_id, "trial", 7, user_uuid)  # Записываем в БД
+
+        await callback.message.answer(
+            f"🎁 <b>Пробный период активирован!</b>\n\n"
+            f"Вам доступно 7 дней VPN.\n\n"
+            f"Твой ключ:\n<code>{vpn_link}</code>",
+            reply_markup=main_menu_inline()
+        )
+    else:
+        await callback.message.answer("❌ Ошибка при создании доступа. Попробуйте позже.")
 
 
 @dp.callback_query(F.data == "menu_instructions")
@@ -87,7 +131,56 @@ async def contact(callback: CallbackQuery):
                                      reply_markup=back_to_menu_kb())
 
 
+# bot.py
+
+@dp.callback_query(F.data == "menu_profile")
+async def show_profile(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    # Получаем данные вместе с UUID
+    sub = get_full_subscription(tg_id)
+
+    if sub:
+        tariff, expiry, user_uuid = sub
+        user_name = callback.from_user.username or "user"
+
+        # Генерируем ссылку заново по сохраненному UUID
+        vpn_link = xui.get_link(INBOUND_ID, user_uuid, f"VPN_{user_name}")
+
+        text = (
+            f"👤 <b>Личный кабинет</b>\n\n"
+            f"🆔 Ваш ID: <code>{tg_id}</code>\n"
+            f"💎 Тариф: <b>{tariff}</b>\n"
+            f"📅 Истекает: <code>{expiry}</code>\n\n"
+            f"🔑 <b>Ваш ключ:</b>\n<code>{vpn_link}</code>\n\n"
+            f"<i>Вы можете продлить подписку, нажав кнопку ниже.</i>"
+        )
+        await callback.message.edit_text(text, reply_markup=profile_kb(has_sub=True))
+    else:
+        text = (
+            "👤 <b>Личный кабинет</b>\n\n"
+            "У вас пока нет активных подписок. Подключитесь, чтобы получить доступ к VPN."
+        )
+        await callback.message.edit_text(text, reply_markup=profile_kb(has_sub=False))
+
 # --- ТВОЯ ЛОГИКА ПОКУПКИ (С НЕБОЛЬШИМИ ПРАВКАМИ ПОД EDIT_TEXT) ---
+
+
+@dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
+async def admin_panel(message: Message):
+    await message.answer("🛠 <b>Панель управления Amoral VPN</b>", reply_markup=admin_main_kb())
+
+
+@dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
+async def show_admin_stats(callback: CallbackQuery):
+    total, active, money = get_admin_stats()
+    text = (
+        "📊 <b>Статистика сервиса:</b>\n\n"
+        f"👥 Всего пользователей: <b>{total}</b>\n"
+        f"⚡️ Активных подписок: <b>{active}</b>\n"
+        f"💰 Общий доход: <b>{money} ₽</b>"
+    )
+    await callback.message.edit_text(text, reply_markup=admin_main_kb())
+
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(callback: CallbackQuery):
@@ -131,7 +224,8 @@ async def check(callback: CallbackQuery):
         if xui.add_client(INBOUND_ID, user_uuid, user_email, days=days):
             vpn_link = xui.get_link(INBOUND_ID, user_uuid, f"VPN_{user_name}")
             add_user(tg_id, user_name)
-            add_subscription(tg_id, tariff_key, days)
+
+            add_subscription(tg_id, tariff_key, days, user_uuid)
 
             await callback.message.answer(
                 f"🎉 <b>Подписка активирована!</b>\n\n"

@@ -7,5 +7,6 @@ YOOMONEY_TOKEN = "ВАШ_ТОКЕН_ЮМАНИ"
 XUI_URL = "https://ВАШ_IP:ПОРТ/ПУТЬ_ПАНЕЛИ"
 XUI_USERNAME = "admin"
 XUI_PASSWORD = "password"
-INBOUND_ID = 1  # ID вашего входящего подключения (обычно 1 или 4)
+INBOUND_ID = 4  # ID вашего входящего подключения (обычно 1 или 4)
 
+ADMIN_ID = 710787759
